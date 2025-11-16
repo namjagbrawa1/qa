@@ -1,126 +1,216 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 
-// localStorage 键名常量
-const STORAGE_KEYS = {
-  QUESTIONS: 'exam_questions',
-  EXAMS: 'exam_exams',
-  EXAM_RECORDS: 'exam_records'
+// API 基础URL
+const API_BASE_URL = 'http://localhost:3001/api'
+
+// API 工具函数
+const apiRequest = async (url, options = {}) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}${url}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      },
+      ...options
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    return await response.json()
+  } catch (error) {
+    console.error('API request failed:', error)
+    throw error
+  }
 }
 
-// 默认题库数据
-const DEFAULT_QUESTIONS = [
-  {
-    id: 1,
-    type: 'single',
-    question: '以下哪个是Vue.js的核心特性？',
-    options: ['响应式数据绑定', '虚拟DOM', '组件化', '以上都是'],
-    correctAnswer: 3,
-    score: 10
+// API 服务
+const api = {
+  // 题目相关API
+  async getQuestions() {
+    return await apiRequest('/questions')
   },
-  {
-    id: 2,
-    type: 'single',
-    question: 'JavaScript中哪个方法用于添加数组元素？',
-    options: ['push()', 'add()', 'insert()', 'append()'],
-    correctAnswer: 0,
-    score: 10
+  
+  async createQuestion(question) {
+    return await apiRequest('/questions', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: question.question,
+        type: question.type,
+        options: question.options,
+        correctAnswer: Array.isArray(question.correctAnswer) ? question.correctAnswer : [question.correctAnswer],
+        score: question.score
+      })
+    })
   },
-  {
-    id: 3,
-    type: 'multiple',
-    question: '以下哪些是CSS预处理器？',
-    options: ['Sass', 'Less', 'Stylus', 'PostCSS'],
-    correctAnswer: [0, 1, 2],
-    score: 15
+  
+  async updateQuestion(id, question) {
+    return await apiRequest(`/questions/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        title: question.question,
+        type: question.type,
+        options: question.options,
+        correctAnswer: Array.isArray(question.correctAnswer) ? question.correctAnswer : [question.correctAnswer],
+        score: question.score
+      })
+    })
   },
-  {
-    id: 4,
-    type: 'single',
-    question: 'HTML5新增的语义化标签包括？',
-    options: ['<header>', '<nav>', '<section>', '以上都是'],
-    correctAnswer: 3,
-    score: 10
-  }
-]
-
-// localStorage 工具函数
-const storage = {
-  get(key) {
-    try {
-      const item = localStorage.getItem(key)
-      return item ? JSON.parse(item) : null
-    } catch (error) {
-      console.error(`Error reading from localStorage key "${key}":`, error)
-      return null
-    }
+  
+  async deleteQuestion(id) {
+    return await apiRequest(`/questions/${id}`, {
+      method: 'DELETE'
+    })
   },
-  set(key, value) {
-    try {
-      localStorage.setItem(key, JSON.stringify(value))
-    } catch (error) {
-      console.error(`Error writing to localStorage key "${key}":`, error)
-    }
+  
+  // 试卷相关API
+  async getExams() {
+    return await apiRequest('/exams')
+  },
+  
+  async createExam(exam) {
+    return await apiRequest('/exams', {
+      method: 'POST',
+      body: JSON.stringify(exam)
+    })
+  },
+  
+  async deleteExam(id) {
+    return await apiRequest(`/exams/${id}`, {
+      method: 'DELETE'
+    })
+  },
+  
+  // 考试记录相关API
+  async getExamRecords() {
+    return await apiRequest('/exam-records')
+  },
+  
+  async createExamRecord(record) {
+    return await apiRequest('/exam-records', {
+      method: 'POST',
+      body: JSON.stringify(record)
+    })
   }
 }
 
 export const useExamStore = defineStore('exam', () => {
-  // 从localStorage读取数据，如果没有则使用默认值
-  const questions = ref(storage.get(STORAGE_KEYS.QUESTIONS) || DEFAULT_QUESTIONS)
-  const exams = ref(storage.get(STORAGE_KEYS.EXAMS) || [])
-  const examRecords = ref(storage.get(STORAGE_KEYS.EXAM_RECORDS) || [])
-
-  // 监听数据变化，自动保存到localStorage
-  watch(questions, (newQuestions) => {
-    storage.set(STORAGE_KEYS.QUESTIONS, newQuestions)
-  }, { deep: true })
-
-  watch(exams, (newExams) => {
-    storage.set(STORAGE_KEYS.EXAMS, newExams)
-  }, { deep: true })
-
-  watch(examRecords, (newRecords) => {
-    storage.set(STORAGE_KEYS.EXAM_RECORDS, newRecords)
-  }, { deep: true })
+  // 响应式数据
+  const questions = ref([])
+  const exams = ref([])
+  const examRecords = ref([])
+  const loading = ref(false)
+  const error = ref(null)
 
   // 计算属性
   const totalQuestions = computed(() => questions.value.length)
   const totalExams = computed(() => exams.value.length)
   const totalParticipants = computed(() => examRecords.value.length)
 
-  // 添加题目
-  const addQuestion = (question) => {
-    const newQuestion = {
-      ...question,
-      id: Date.now()
+  // 数据转换函数：将API数据转换为前端格式
+  const transformQuestion = (apiQuestion) => ({
+    id: apiQuestion.id,
+    type: apiQuestion.type,
+    question: apiQuestion.title,
+    options: apiQuestion.options,
+    correctAnswer: apiQuestion.type === 'single' ? apiQuestion.correctAnswer[0] : apiQuestion.correctAnswer,
+    score: apiQuestion.score
+  })
+
+  // 初始化数据
+  const initializeData = async () => {
+    loading.value = true
+    error.value = null
+    
+    try {
+      const [questionsData, examsData, recordsData] = await Promise.all([
+        api.getQuestions(),
+        api.getExams(),
+        api.getExamRecords()
+      ])
+      
+      questions.value = questionsData.map(transformQuestion)
+      exams.value = examsData
+      examRecords.value = recordsData
+    } catch (err) {
+      error.value = err.message
+      console.error('Failed to initialize data:', err)
+    } finally {
+      loading.value = false
     }
-    questions.value.push(newQuestion)
+  }
+
+  // 添加题目
+  const addQuestion = async (question) => {
+    loading.value = true
+    error.value = null
+    
+    try {
+      const newQuestion = await api.createQuestion(question)
+      questions.value.push(transformQuestion(newQuestion))
+      return newQuestion
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loading.value = false
+    }
   }
 
   // 删除题目
-  const deleteQuestion = (id) => {
-    const index = questions.value.findIndex(q => q.id === id)
-    if (index > -1) {
-      questions.value.splice(index, 1)
+  const deleteQuestion = async (id) => {
+    loading.value = true
+    error.value = null
+    
+    try {
+      await api.deleteQuestion(id)
+      const index = questions.value.findIndex(q => q.id === id)
+      if (index > -1) {
+        questions.value.splice(index, 1)
+      }
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loading.value = false
     }
   }
 
   // 创建试卷
-  const createExam = (exam) => {
-    const newExam = {
-      ...exam,
-      id: Date.now(),
-      createdAt: new Date().toISOString()
+  const createExam = async (exam) => {
+    loading.value = true
+    error.value = null
+    
+    try {
+      const newExam = await api.createExam(exam)
+      exams.value.push(newExam)
+      return newExam
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loading.value = false
     }
-    exams.value.push(newExam)
-    return newExam
   }
 
   // 删除试卷
-  const deleteExam = (id) => {
-    const index = exams.value.findIndex(e => e.id === id)
-    if (index > -1) {
-      exams.value.splice(index, 1)
+  const deleteExam = async (id) => {
+    loading.value = true
+    error.value = null
+    
+    try {
+      await api.deleteExam(id)
+      const index = exams.value.findIndex(e => e.id === id)
+      if (index > -1) {
+        exams.value.splice(index, 1)
+      }
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loading.value = false
     }
   }
 
@@ -134,7 +224,7 @@ export const useExamStore = defineStore('exam', () => {
   }
 
   // 提交考试答案
-  const submitExam = (examId, answers, scoringMode = 'add') => {
+  const submitExam = async (examId, answers, scoringMode = 'add') => {
     const exam = exams.value.find(e => e.id === examId)
     if (!exam) return null
 
@@ -181,18 +271,22 @@ export const useExamStore = defineStore('exam', () => {
     }
 
     const record = {
-      id: Date.now(),
       examId,
-      totalScore,
-      correctCount,
-      totalQuestions: exam.questions.length,
-      results,
-      submittedAt: new Date().toISOString(),
-      scoringMode
+      answers,
+      score: totalScore,
+      totalScore: exam.totalScore || totalScore,
+      startTime: new Date().toISOString(),
+      endTime: new Date().toISOString()
     }
 
-    examRecords.value.push(record)
-    return record
+    try {
+      const savedRecord = await api.createExamRecord(record)
+      examRecords.value.push(savedRecord)
+      return savedRecord
+    } catch (err) {
+      error.value = err.message
+      throw err
+    }
   }
 
   // 无限制模式专用：提交单题答案
@@ -220,25 +314,21 @@ export const useExamStore = defineStore('exam', () => {
     }
   }
 
-  // 清除所有存储数据
-  const clearStorage = () => {
-    localStorage.removeItem(STORAGE_KEYS.QUESTIONS)
-    localStorage.removeItem(STORAGE_KEYS.EXAMS)
-    localStorage.removeItem(STORAGE_KEYS.EXAM_RECORDS)
-    
-    // 重置为默认数据
-    questions.value = [...DEFAULT_QUESTIONS]
-    exams.value = []
-    examRecords.value = []
+  // 刷新数据
+  const refreshData = async () => {
+    await initializeData()
   }
 
   return {
     questions,
     exams,
     examRecords,
+    loading,
+    error,
     totalQuestions,
     totalExams,
     totalParticipants,
+    initializeData,
     addQuestion,
     deleteQuestion,
     createExam,
@@ -246,6 +336,6 @@ export const useExamStore = defineStore('exam', () => {
     submitExam,
     getRandomQuestions,
     submitUnlimitedAnswer,
-    clearStorage
+    refreshData
   }
 })

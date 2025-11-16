@@ -28,7 +28,18 @@ Thumbs.db
 # Logs
 *.log
 server.log
+server_final.log
+simple_server.log
+proxy.log
 
 # Cache
 .cache/
 .vite/
+
+# Database
+server/database.sqlite
+
+# Python files
+*.py
+*.pyc
+__pycache__/
