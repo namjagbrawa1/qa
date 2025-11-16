@@ -1,48 +1,87 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+
+// localStorage 键名常量
+const STORAGE_KEYS = {
+  QUESTIONS: 'exam_questions',
+  EXAMS: 'exam_exams',
+  EXAM_RECORDS: 'exam_records'
+}
+
+// 默认题库数据
+const DEFAULT_QUESTIONS = [
+  {
+    id: 1,
+    type: 'single',
+    question: '以下哪个是Vue.js的核心特性？',
+    options: ['响应式数据绑定', '虚拟DOM', '组件化', '以上都是'],
+    correctAnswer: 3,
+    score: 10
+  },
+  {
+    id: 2,
+    type: 'single',
+    question: 'JavaScript中哪个方法用于添加数组元素？',
+    options: ['push()', 'add()', 'insert()', 'append()'],
+    correctAnswer: 0,
+    score: 10
+  },
+  {
+    id: 3,
+    type: 'multiple',
+    question: '以下哪些是CSS预处理器？',
+    options: ['Sass', 'Less', 'Stylus', 'PostCSS'],
+    correctAnswer: [0, 1, 2],
+    score: 15
+  },
+  {
+    id: 4,
+    type: 'single',
+    question: 'HTML5新增的语义化标签包括？',
+    options: ['<header>', '<nav>', '<section>', '以上都是'],
+    correctAnswer: 3,
+    score: 10
+  }
+]
+
+// localStorage 工具函数
+const storage = {
+  get(key) {
+    try {
+      const item = localStorage.getItem(key)
+      return item ? JSON.parse(item) : null
+    } catch (error) {
+      console.error(`Error reading from localStorage key "${key}":`, error)
+      return null
+    }
+  },
+  set(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value))
+    } catch (error) {
+      console.error(`Error writing to localStorage key "${key}":`, error)
+    }
+  }
+}
 
 export const useExamStore = defineStore('exam', () => {
-  // 题库
-  const questions = ref([
-    {
-      id: 1,
-      type: 'single',
-      question: '以下哪个是Vue.js的核心特性？',
-      options: ['响应式数据绑定', '虚拟DOM', '组件化', '以上都是'],
-      correctAnswer: 3,
-      score: 10
-    },
-    {
-      id: 2,
-      type: 'single',
-      question: 'JavaScript中哪个方法用于添加数组元素？',
-      options: ['push()', 'add()', 'insert()', 'append()'],
-      correctAnswer: 0,
-      score: 10
-    },
-    {
-      id: 3,
-      type: 'multiple',
-      question: '以下哪些是CSS预处理器？',
-      options: ['Sass', 'Less', 'Stylus', 'PostCSS'],
-      correctAnswer: [0, 1, 2],
-      score: 15
-    },
-    {
-      id: 4,
-      type: 'single',
-      question: 'HTML5新增的语义化标签包括？',
-      options: ['<header>', '<nav>', '<section>', '以上都是'],
-      correctAnswer: 3,
-      score: 10
-    }
-  ])
+  // 从localStorage读取数据，如果没有则使用默认值
+  const questions = ref(storage.get(STORAGE_KEYS.QUESTIONS) || DEFAULT_QUESTIONS)
+  const exams = ref(storage.get(STORAGE_KEYS.EXAMS) || [])
+  const examRecords = ref(storage.get(STORAGE_KEYS.EXAM_RECORDS) || [])
 
-  // 试卷
-  const exams = ref([])
+  // 监听数据变化，自动保存到localStorage
+  watch(questions, (newQuestions) => {
+    storage.set(STORAGE_KEYS.QUESTIONS, newQuestions)
+  }, { deep: true })
 
-  // 考试记录
-  const examRecords = ref([])
+  watch(exams, (newExams) => {
+    storage.set(STORAGE_KEYS.EXAMS, newExams)
+  }, { deep: true })
+
+  watch(examRecords, (newRecords) => {
+    storage.set(STORAGE_KEYS.EXAM_RECORDS, newRecords)
+  }, { deep: true })
 
   // 计算属性
   const totalQuestions = computed(() => questions.value.length)
@@ -181,6 +220,18 @@ export const useExamStore = defineStore('exam', () => {
     }
   }
 
+  // 清除所有存储数据
+  const clearStorage = () => {
+    localStorage.removeItem(STORAGE_KEYS.QUESTIONS)
+    localStorage.removeItem(STORAGE_KEYS.EXAMS)
+    localStorage.removeItem(STORAGE_KEYS.EXAM_RECORDS)
+    
+    // 重置为默认数据
+    questions.value = [...DEFAULT_QUESTIONS]
+    exams.value = []
+    examRecords.value = []
+  }
+
   return {
     questions,
     exams,
@@ -194,6 +245,7 @@ export const useExamStore = defineStore('exam', () => {
     deleteExam,
     submitExam,
     getRandomQuestions,
-    submitUnlimitedAnswer
+    submitUnlimitedAnswer,
+    clearStorage
   }
 })
